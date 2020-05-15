@@ -1,3 +1,4 @@
+import json
 from time import sleep
 import spotipy
 import spotipy.client
@@ -18,12 +19,13 @@ from threading import Lock, Thread
 from functools import partial
 import configparser
 from pathlib import Path
+import copy
 
 
 # Toggle web/local by absence of client_Secret in config/cfg
 # empty = use aws
 # filled = use local
-#TODO: Optimize/fix hotkey
+#TODO: Optimize/fix hotkey (move to punputs .hotkey system)
 #TODO: Set up server for secret ID
 #TODO: Add skip/pause,play hotkeys
 #TODO: Tray entrys for enabling/disabling hotkeys
@@ -40,11 +42,12 @@ icon_image = Image.open('img/ToUnlike.PNG')
 menu = (item('name1', lambda: pprint('name1')), item('Exit', lambda: close_program()))
 icon = pystray.Icon('Sliker', icon_image, 'Sliker? I dont even know her', menu)
 
+LIKE_TOGGLE_COMBO = []
 
-COMBINATIONS = [
-    {keyboard.Key.shift, keyboard.KeyCode(char='a')},
-    {keyboard.Key.shift, keyboard.KeyCode(char='A')},
-]
+# LIKE_TOGGLE_COMBO = [
+#     [keyboard.Key.shift, keyboard.KeyCode(char='a')],
+#     [keyboard.Key.shift, keyboard.KeyCode(char='A')],
+# ]
 
 hotkey_active_state = '0'
 current_keys_pressed = set()
@@ -72,7 +75,7 @@ def main():
     def icon_thread(icn):
         icon_loop(icn, e_is_liked, e_is_unliked)
 
-    thread1 = Process(target=thr1, args=(e_is_liked, e_is_unliked))
+    thread1 = Process(target=thr1, args=(e_is_liked, e_is_unliked, LIKE_TOGGLE_COMBO))
     thread1.start()
     icon.run(setup=icon_thread)
     thread1.join()
@@ -81,43 +84,73 @@ def main():
     sys.exit(200)
 
 
-def thr1(e1, e2):
+def thr1(e1, e2, hkLikeCombo):
     global try_to_quit
     e_is_liking = multiprocessing.Event()
 
     def on_press(key):
-        global hotkey_active_state
-        if any([key in COMBO for COMBO in COMBINATIONS]) and not e_is_liking.is_set():
-            current_keys_pressed.add(key)
-            if any(all(k in current_keys_pressed for k in COMBO) for COMBO in COMBINATIONS) and hotkey_active_state == '0':
-                hotkey_active_state = '1'
-                toggle_like_status(e1, e2, e_is_liking)
+        pprint(hkLikeCombo)
+        if hotkeys_pressed(key, hkLikeCombo, e_is_liking):
+            toggle_like_status(e1, e2, e_is_liking)
 
     def on_release(key):
-        global hotkey_active_state
-        if any([key in COMBO for COMBO in COMBINATIONS]):
-            try:
-                current_keys_pressed.remove(key)
-            except:
-                pprint('couldnt remove. probably already gone IDK')
-            finally:
-                hotkey_active_state = '0'
+        hotkeys_released(key, hkLikeCombo)
 
     with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
         listener.join()
 
 
-def load_config(config_file: str, cfg):
+def hotkeys_pressed(key, hotkeylist, event):
+    global hotkey_active_state
+    if any([key in COMBO for COMBO in hotkeylist]) and not event.is_set():
+        current_keys_pressed.add(key)
+        if any(all(k in current_keys_pressed for k in COMBO) for COMBO in
+               hotkeylist) and hotkey_active_state == '0':
+            hotkey_active_state = '1'
+            return True
+
+
+def hotkeys_released(key, hotkeylist):
+    global hotkey_active_state
+    if any([key in COMBO for COMBO in hotkeylist]):
+        try:
+            current_keys_pressed.remove(key)
+        except:
+            pprint('couldnt remove. probably already gone IDK')
+        finally:
+            hotkey_active_state = '0'
+
+
+def load_config(config_file: str, cfg: configparser):
     global username
     global client_id
     global client_secret
     global redirect_uri
+    global LIKE_TOGGLE_COMBO
 
     if Path(config_file).is_file():
         pprint('Config Exists')
         cfg.read(config_file)
-        pprint(cfg.sections())
     else:
+        cfg['COMMENTS'] = {}
+        cfg.set('COMMENTS', """###########################################################################
+# For a non alphanumerical key use:
+# https://pynput.readthedocs.io/en/latest/keyboard.html#pynput.keyboard.Key
+# ")
+# For a alpha/numerical key, do
+# keyboard.KeyCode(char='YOUR KEY')
+# If using shift as a modifyer, do 2 entries. one with a lower case, the other with uppercase. Example:
+# [")
+#         [\"keyboard.Key.shift\", \"keyboard.KeyCode(char='a')\"],
+#         [\"keyboard.Key.shift\", \"keyboard.KeyCode(char='A')\"]
+# ]
+###########################################################################""",'')
+        cfg['Hotkeys'] = {}
+        cfg['Hotkeys']['like_toggle'] = """[
+        ["keyboard.Key.shift", "keyboard.KeyCode(char='a')"],
+        ["keyboard.Key.shift", "keyboard.KeyCode(char='A')"]
+        ]"""
+
         cfg['API Keys'] = {}
         cfg['API Keys']['client_id'] = ''
         cfg['API Keys']['client_secret'] = ''
@@ -128,10 +161,13 @@ def load_config(config_file: str, cfg):
         with open(config_file, 'w') as configfile:
             cfg.write(configfile)
         get_api_client_creds()
+
     username = config['User']['username']
     redirect_uri = config['API Keys']['redirect_uri']
     client_id = config['API Keys']['client_id']
     client_secret = config['API Keys']['client_secret']
+    LIKE_TOGGLE_COMBO = copy.deepcopy(json.loads(config['Hotkeys']['like_toggle']))
+    listlistStr_to_listlistFunc(LIKE_TOGGLE_COMBO)
 
 
 def get_api_client_creds():
@@ -143,15 +179,25 @@ def get_api_client_creds():
     print('https://developer.spotify.com/dashboard/applications')
 
     print('Walkthrough images are in img/walkthrough')
+    usrnm = input('Spotify Login ID: ')
     cid = input('Client ID: ')
     cst = input('Client Secret: ')
     ruri = input('Redirect Uri (leave blank to use: ' + config['API Keys']['redirect_uri'] + '): ')
     if len(ruri) > 3:
         config['API Keys']['redirect_uri'] = ruri
+    config['User']['username'] = usrnm
     config['API Keys']['client_id'] = cid
     config['API Keys']['client_secret'] = cst
     with open('config.cfg', 'w') as configfile:
         config.write(configfile)
+    return
+
+
+def listlistStr_to_listlistFunc(vlist):
+    for i in range(len(vlist)):
+        for x in range(len(vlist[i])):
+            vlist[i][x] = eval(vlist[i][x])
+    return
 
 
 def close_program():
