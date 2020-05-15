@@ -35,7 +35,6 @@ try_to_quit = False
 thread1: Process = None
 
 config = configparser.ConfigParser()
-config.read('config.cfg')
 
 
 icon_image = Image.open('img/ToUnlike.PNG')
@@ -44,22 +43,8 @@ icon = pystray.Icon('Sliker', icon_image, 'Sliker? I dont even know her', menu)
 
 LIKE_TOGGLE_COMBO = []
 
-# LIKE_TOGGLE_COMBO = [
-#     [keyboard.Key.shift, keyboard.KeyCode(char='a')],
-#     [keyboard.Key.shift, keyboard.KeyCode(char='A')],
-# ]
-
 hotkey_active_state = '0'
 current_keys_pressed = set()
-
-# username = ''
-# redirect_uri = ''
-# client_id = ''
-# client_secret = ''
-username = config['User']['username']
-redirect_uri = config['API Keys']['redirect_uri']
-client_id = config['API Keys']['client_id']
-client_secret = config['API Keys']['client_secret']
 
 
 def main():
@@ -68,6 +53,7 @@ def main():
     global thread1
     global try_to_quit
     global icon
+    pprint(config)
 
     e_is_liked = multiprocessing.Event()
     e_is_unliked = multiprocessing.Event()
@@ -122,10 +108,6 @@ def hotkeys_released(key, hotkeylist):
 
 
 def load_config(config_file: str, cfg: configparser):
-    global username
-    global client_id
-    global client_secret
-    global redirect_uri
     global LIKE_TOGGLE_COMBO
 
     if Path(config_file).is_file():
@@ -161,12 +143,12 @@ def load_config(config_file: str, cfg: configparser):
         with open(config_file, 'w') as configfile:
             cfg.write(configfile)
         get_api_client_creds()
-
-    username = config['User']['username']
-    redirect_uri = config['API Keys']['redirect_uri']
-    client_id = config['API Keys']['client_id']
-    client_secret = config['API Keys']['client_secret']
-    LIKE_TOGGLE_COMBO = copy.deepcopy(json.loads(config['Hotkeys']['like_toggle']))
+    cfg.read(config_file)
+    username = cfg['User']['username']
+    redirect_uri = cfg['API Keys']['redirect_uri']
+    client_id = cfg['API Keys']['client_id']
+    client_secret = cfg['API Keys']['client_secret']
+    LIKE_TOGGLE_COMBO = copy.deepcopy(json.loads(cfg['Hotkeys']['like_toggle']))
     listlistStr_to_listlistFunc(LIKE_TOGGLE_COMBO)
 
 
@@ -289,6 +271,11 @@ def get_device(device_type):
 
 
 def spotify_entire_scope():
+    config.read('config.cfg')
+    username = config['User']['username']
+    redirect_uri = config['API Keys']['redirect_uri']
+    client_id = config['API Keys']['client_id']
+    client_secret = config['API Keys']['client_secret']
     spotify = spotipy.Spotify(auth=util.prompt_for_user_token(username=username, scope="user-library-modify "
                                                                                        "user-library-read "
                                                                                        "user-modify-playback-state "
